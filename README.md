@@ -1,4 +1,4 @@
-# <img src="assets/logo.png" alt="" width="48" align="center"> Collinear Zero
+# <img src="assets/logo.png" alt="" width="48" height="48" align="middle"> Collinear Zero
 
 Turn a security finding (a CVE, advisory, CWE description, audit or scanner result) into a fix with the coding agent
 you already use (opencode, Claude Code or Codex), then check that fix with an **independent attack-tester** before
@@ -28,7 +28,7 @@ Why it is built this way is in [docs/how-it-works.md](docs/how-it-works.md).
 
 ```bash
 # 1. Install cz and the rules for Claude Code, opencode and Codex
-git clone <this repository> collinear-zero && cd collinear-zero && ./install.sh
+git clone https://github.com/collinear-ai/collinear-zero collinear-zero && cd collinear-zero && ./install.sh
 
 # 2. In the repository to fix, save the finding (CVE text, advisory, scanner output…)
 cd /path/to/your/repo && $EDITOR finding.md
@@ -103,7 +103,7 @@ Details per harness are in [docs/harnesses.md](docs/harnesses.md).
   title  = {Collinear Zero: a Pareto-optimal defensive cyber harness for LLM agents},
   author = {{Collinear AI}},
   year   = {2026},
-  url    = {TODO},
+  url    = {https://github.com/collinear-ai/collinear-zero},
 }
 ```
 
