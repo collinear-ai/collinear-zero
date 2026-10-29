@@ -1,0 +1,30 @@
+Collinear Zero
+Copyright 2026 the Collinear Zero authors
+
+Licensed under the Apache License, Version 2.0 (LICENSE).
+
+The skill (collinearzero/core/skills/collinearzero/) contains material adapted from two Apache-2.0 projects. Copies of
+their licenses are in licenses/. Every adapted file was modified; SKILL.md names the sources in a comment.
+
+codex-security (https://github.com/openai/codex-security), Copyright 2025 OpenAI
+  - Used for the workflow, priorities and review in SKILL.md, from its fix-finding, validation, verify-fix and
+    assess-patch-risk skills and the static-finding-assessment reference.
+  - Used for the "complete control" guidance in classes/*.md, from validation/references/validation-guidance.md.
+  - Changes: condensed into numbered steps; MCP artifact storage, scan workbench, subagent delegation, outcome
+    contracts and JSON schemas removed; validation made offline and timeboxed; scan-oriented validation rules
+    rewritten as patch-completeness rules grouped by weakness family.
+  - Collinear Zero is not Codex Security and is not affiliated with OpenAI.
+
+deepsec, Copyright 2026 Vercel, Inc. and contributors
+  Its NOTICE (licenses/deepsec-NOTICE):
+    deepsec
+    Copyright 2026 Vercel, Inc. and contributors
+    This product includes software developed at Vercel, Inc. (https://vercel.com/).
+  - Used in classes/*.md (the processor's slug notes, highlights and core prompt, and the header comments of the
+    untrusted-redirect-following, fs-write-symlink-boundary, url-regex-validation and archive-extraction-untrusted
+    matchers) and in the review step of SKILL.md (the revalidation steps of agents/shared.ts).
+  - Changes: the scanner's "flag if..." notes were reworded as fix guidance and grouped by weakness family; the
+    "static analysis only" restriction was not copied.
+  - Collinear Zero is not affiliated with Vercel.
+
+Everything else (the rules, the attack-tester, the review loop and the cz tool) was written for Collinear Zero.

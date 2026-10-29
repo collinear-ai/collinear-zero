@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+build/
+*.egg-info/
+.venv/
+.lint-labels
+CLAUDE.md
+AGENTS.md

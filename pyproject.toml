@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "collinearzero"
+version = "0.1.0"
+description = "Fix a described security weakness with a coding agent, then review the patch with an independent attack-tester."
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+cz = "collinearzero.cli:main"
+
+[tool.setuptools]
+packages = ["collinearzero"]
+
+[tool.setuptools.package-data]
+collinearzero = ["core/*.md", "core/agents/*.md", "core/skills/collinearzero/*.md", "core/skills/collinearzero/classes/*.md",
+               "scripts/*.sh"]
