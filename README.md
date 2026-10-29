@@ -28,7 +28,7 @@ Why it is built this way is in [docs/how-it-works.md](docs/how-it-works.md).
 
 ```bash
 # 1. Install cz and the rules for Claude Code, opencode and Codex
-git clone https://github.com/collinear-ai/collinear-zero collinear-zero && cd collinear-zero && ./install.sh
+curl -fsSL https://raw.githubusercontent.com/collinear-ai/collinear-zero/main/install.sh | bash
 
 # 2. In the repository to fix, save the finding (CVE text, advisory, scanner output…)
 cd /path/to/your/repo && $EDITOR finding.md
@@ -41,11 +41,17 @@ cz run --task finding.md --harness claude      # or opencode / codex
 <summary>Install options</summary>
 
 ```bash
-./install.sh claude                   # one harness only
-SCOPE=project ./install.sh claude     # into the current repository instead of your user config
+URL=https://raw.githubusercontent.com/collinear-ai/collinear-zero/main/install.sh
+curl -fsSL $URL | bash -s -- claude                 # one harness only
+curl -fsSL $URL | SCOPE=project bash -s -- claude   # into the current repository instead of your user config
+cz uninstall --harness claude                       # remove everything cz install added
+
+# From a checkout
+git clone https://github.com/collinear-ai/collinear-zero && cd collinear-zero && ./install.sh
 pip install . && cz install --harness claude opencode codex   # by hand
-cz uninstall --harness claude         # remove everything cz install added
 ```
+
+To read the script before it runs, download it first: `curl -fsSLO $URL && less install.sh && bash install.sh`.
 
 Every file `cz install` edits is backed up once as `*.cz-bak`.
 

@@ -15,3 +15,5 @@ jobs:
       - run: python scripts/lint.py
       - run: python -m unittest discover -s tests -t .
       - run: pip install . && cz --version && cz render --harness claude > /dev/null
+      - name: install.sh piped into bash, as with curl
+        run: CZ_SOURCE="$PWD" bash -s -- claude < install.sh && grep -q collinearzero:begin ~/.claude/CLAUDE.md
