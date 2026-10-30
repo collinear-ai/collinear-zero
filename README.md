@@ -1,4 +1,4 @@
-# Collinear Zero <img src="assets/logo.png" alt="" width="48" height="48" align="middle"> 
+# Collinear Zero <img src="assets/logo.png" alt="" width="48" height="48" align="texttop"> 
 
 <p align="center">
   <a href="docs/how-it-works.md"><img src="https://img.shields.io/badge/docs-how%20it%20works-FFD43B?style=for-the-badge" alt="Docs"></a>
