@@ -5,7 +5,7 @@
      without a report); anything the tester changed in the tree is put back;
   3. deterministic triage of its report (triage.py);
   4. if anything was kept: one fix round in the agent's own session;
-  5. recheck: the tester's session re-runs its legitimate-use checks on the new tree; RECHECK: BROKEN restores the
+  5. recheck: the tester's session re-runs its legitimate-use checks on the new tree; verdict="BROKEN" restores the
      checkpoint.
 
 Time follows the tested setup: with a deadline, the review needs 600 s left to start, the tester gets
@@ -32,7 +32,7 @@ class Clock:
 
 
 def _report(s: Session) -> str:
-    return next((t for t in reversed(s.texts or [s.text]) if tr.HDR("BYPASSES").search(t or "")), "")
+    return next((t for t in reversed(s.texts or [s.text]) if tr.has_report(t or "")), "")
 
 
 def _record(info: dict) -> None:
@@ -74,7 +74,7 @@ def tester_phase(tester: Harness, repo: Path, clock: Clock, tester_cap: float = 
     (ws() / "review_raw.md").write_text(rep)
     _put_back(repo, ws() / "pre_review", info, "tester_changed_tree")
     t = tr.triage(rep, tr.repo_path_checker(repo, patched_paths(repo), ws() / "orig"))
-    info.update({k: t[k] for k in ("headers", "fallback", "not_run")}, stop=t.get("stop"),
+    info.update(not_run=t["not_run"], stop=t.get("stop"),
                 kept=[{k: v for k, v in x.items() if k != "text"} for x in t["kept"]], dropped=t["dropped"])
     body = tr.forward_body(t)
     if not body:
@@ -103,9 +103,9 @@ def recheck_phase(tester: Harness, repo: Path, info: dict, clock: Clock) -> None
     if not tsid or clock.left() <= 240:
         info["recheck"] = {"verdict": None, "skipped": "no tester session" if not tsid else "time"}
         return
-    snapshot(repo, ws() / "post_fix", skip=(".git",))
+    snapshot(repo, ws() / "post_fix", skip=REVERT_EXCLUDES)
     s = tester.tester(tr.RECHECK, min(clock.left() - 60, 600), sid=tsid, tag="review_recheck")
-    text = next((t for t in reversed(s.texts or [s.text]) if tr.VERDICT.search(t or "")), s.text)
+    text = next((t for t in reversed(s.texts or [s.text]) if tr.has_recheck(t or "")), s.text)
     (ws() / "review_recheck.md").write_text(text or "")
     rc = {**tr.recheck_verdict(text), "secs": round(s.secs, 1)}
     _put_back(repo, ws() / "post_fix", rc, "tester_changed_tree")

@@ -44,6 +44,23 @@ class WorkspaceTest(TempWS):
         self.assertFalse((self.repo / "scratch.txt").exists())
         self.assertTrue((self.repo / ".git/HEAD").exists())
 
+    def test_special_files_and_light_checkpoint(self):
+        self.write("app.py", "v1\n")
+        self.write("node_modules/dep/index.js", "dep\n")
+        self.write("pkg/node_modules/dep/index.js", "dep\n")
+        os.symlink("/dev/null", self.repo / "null")
+        w.init(self.repo, "t")
+        self.assertEqual(w.tree_diff(w.ws() / "orig", self.repo), [])     # a link to /dev/null is not a change
+        w.checkpoint(self.repo)
+        self.assertFalse((w.ws() / "pre_review/node_modules").exists())
+        self.write("app.py", "v2\n")
+        import shutil
+        shutil.rmtree(self.repo / "pkg")                                # the fix round deleted a directory
+        self.assertEqual(w.revert(self.repo)["residual"], 0)
+        self.assertEqual((self.repo / "app.py").read_text(), "v1\n")
+        self.assertTrue((self.repo / "pkg/node_modules/dep/index.js").exists())   # restored whole
+        self.assertTrue((self.repo / "node_modules/dep/index.js").exists())       # never touched by a revert
+
     def test_init_refuses_other_repo(self):
         w.init(self.repo, "t")
         other = self.tmp / "other"

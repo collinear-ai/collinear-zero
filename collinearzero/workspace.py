@@ -13,6 +13,7 @@ import filecmp
 import json
 import os
 import shutil
+import stat
 import time
 from pathlib import Path
 
@@ -82,9 +83,13 @@ def init(repo: Path, task: str, force: bool = False) -> str:
 
 def _same(a: Path, b: Path) -> bool:
     try:
-        return filecmp.cmp(a, b, shallow=False)
+        sa, sb = os.stat(a), os.stat(b)
     except OSError:   # a dangling link on either side
         return a.is_symlink() and b.is_symlink() and os.readlink(a) == os.readlink(b)
+    if not (stat.S_ISREG(sa.st_mode) and stat.S_ISREG(sb.st_mode)):
+        # filecmp calls any non-regular file different; a link to /dev/null on both sides is the same file
+        return stat.S_IFMT(sa.st_mode) == stat.S_IFMT(sb.st_mode) and sa.st_rdev == sb.st_rdev
+    return filecmp.cmp(a, b, shallow=False)
 
 
 def tree_diff(a: Path, b: Path, excludes: tuple[str, ...] = DIFF_EXCLUDES) -> list[tuple[str, str]]:
@@ -128,7 +133,10 @@ def format_diff(a: Path, b: Path, diffs: list[tuple[str, str]]) -> str:
 
 
 def checkpoint(repo: Path) -> None:
-    snapshot(repo, ws() / "pre_review")
+    """The revert target. A revert leaves REVERT_EXCLUDES alone, so the checkpoint need not copy them at the top level
+    (node_modules alone can be most of a JavaScript repository). Nested ones stay: a revert that restores a deleted
+    directory copies it whole from here."""
+    snapshot(repo, ws() / "pre_review", skip=REVERT_EXCLUDES)
 
 
 def _remove(p: Path) -> None:
