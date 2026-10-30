@@ -10,10 +10,11 @@ class TempWS(unittest.TestCase):
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="cz-test-"))
-        self._env = {k: os.environ.get(k) for k in ("CZ_WS", "HOME", "XDG_CONFIG_HOME", "CODEX_HOME", "CZ_GATE")}
+        self._env = {k: os.environ.get(k) for k in ("CZ_WS", "HOME", "XDG_CONFIG_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR",
+                                                    "CZ_GATE")}
         os.environ["CZ_WS"] = str(self.tmp / "ws")
         os.environ["HOME"] = str(self.tmp / "home")
-        for k in ("XDG_CONFIG_HOME", "CODEX_HOME", "CZ_GATE"):
+        for k in ("XDG_CONFIG_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "CZ_GATE"):
             os.environ.pop(k, None)
         self.repo = self.tmp / "repo"
         self.repo.mkdir()
