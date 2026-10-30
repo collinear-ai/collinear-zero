@@ -5,7 +5,7 @@
      without a report); anything the tester changed in the tree is put back;
   3. deterministic triage of its report (triage.py);
   4. if anything was kept: one fix round in the agent's own session;
-  5. recheck: the tester's session re-runs its legitimate-use checks on the new tree; RECHECK: BROKEN restores the
+  5. recheck: the tester's session re-runs its legitimate-use checks on the new tree; verdict="BROKEN" restores the
      checkpoint.
 
 Time follows the tested setup: with a deadline, the review needs 600 s left to start, the tester gets
@@ -20,7 +20,7 @@ from pathlib import Path
 
 from . import triage as tr
 from .harnesses import Harness, Session
-from .workspace import REVERT_EXCLUDES, checkpoint, load_state, revert, save_state, snapshot, tree_diff, ws
+from .workspace import DIFF_EXCLUDES, REVERT_EXCLUDES, checkpoint, load_state, revert, save_state, snapshot, tree_diff, ws
 
 
 class Clock:
@@ -32,7 +32,7 @@ class Clock:
 
 
 def _report(s: Session) -> str:
-    return next((t for t in reversed(s.texts or [s.text]) if tr.HDR("BYPASSES").search(t or "")), "")
+    return next((t for t in reversed(s.texts or [s.text]) if tr.has_report(t or "")), "")
 
 
 def _record(info: dict) -> None:
@@ -43,6 +43,12 @@ def _put_back(repo: Path, source: Path, info: dict, key: str) -> None:
     """The tester must not change the patch; if it did (a harness without a hard edit-deny), restore `source`."""
     if tree_diff(source, repo, REVERT_EXCLUDES):
         info[key] = revert(repo, source)
+
+
+def patched_paths(repo: Path) -> frozenset[str]:
+    """The paths the patch changed or added, relative to `repo` (none before `cz init`)."""
+    orig = ws() / "orig"
+    return frozenset(r for _, r in tree_diff(orig, repo, DIFF_EXCLUDES)) if orig.exists() else frozenset()
 
 
 def tester_phase(tester: Harness, repo: Path, clock: Clock, tester_cap: float = 1500) -> dict:
@@ -67,8 +73,8 @@ def tester_phase(tester: Harness, repo: Path, clock: Clock, tester_cap: float = 
     info.update(tester_session=s.sid, tester_s=round(time.time() - t0, 1), tester_timed_out=s.timed_out)
     (ws() / "review_raw.md").write_text(rep)
     _put_back(repo, ws() / "pre_review", info, "tester_changed_tree")
-    t = tr.triage(rep, tr.repo_path_checker(repo))
-    info.update({k: t[k] for k in ("headers", "fallback", "not_run")}, stop=t.get("stop"),
+    t = tr.triage(rep, tr.repo_path_checker(repo, patched_paths(repo), ws() / "orig"))
+    info.update(not_run=t["not_run"], stop=t.get("stop"),
                 kept=[{k: v for k, v in x.items() if k != "text"} for x in t["kept"]], dropped=t["dropped"])
     body = tr.forward_body(t)
     if not body:
@@ -79,9 +85,11 @@ def tester_phase(tester: Harness, repo: Path, clock: Clock, tester_cap: float = 
     return info
 
 
-def fix_phase(agent: Harness, agent_sid: str, info: dict, clock: Clock) -> None:
-    """Step 4: the forwarded findings go once to the agent's own session."""
+def fix_phase(agent: Harness, agent_sid: str, info: dict, clock: Clock, recheck: bool = True) -> None:
+    """Step 4: the forwarded findings go once to the agent's own session. With a recheck to come, the fix round leaves
+    it 300 s, so a slow fix round cannot skip the recheck that guards it."""
     left = clock.left()
+    left -= 300 if recheck and left - 300 >= 120 else 0     # never skip the fix round for the reserve
     if left < 120:
         info["stop"] = "time_before_forward"
         return
@@ -97,7 +105,7 @@ def recheck_phase(tester: Harness, repo: Path, info: dict, clock: Clock) -> None
         return
     snapshot(repo, ws() / "post_fix", skip=REVERT_EXCLUDES)
     s = tester.tester(tr.RECHECK, min(clock.left() - 60, 600), sid=tsid, tag="review_recheck")
-    text = next((t for t in reversed(s.texts or [s.text]) if tr.VERDICT.search(t or "")), s.text)
+    text = next((t for t in reversed(s.texts or [s.text]) if tr.has_recheck(t or "")), s.text)
     (ws() / "review_recheck.md").write_text(text or "")
     rc = {**tr.recheck_verdict(text), "secs": round(s.secs, 1)}
     _put_back(repo, ws() / "post_fix", rc, "tester_changed_tree")
@@ -113,7 +121,7 @@ def review_loop(agent: Harness, tester: Harness, repo: Path, agent_sid: str | No
     info = tester_phase(tester, repo, clock, tester_cap)
     st = load_state()
     if info["forward"] and agent_sid:
-        fix_phase(agent, agent_sid, info, clock)
+        fix_phase(agent, agent_sid, info, clock, recheck)
         if recheck:
             recheck_phase(tester, repo, info, clock)
         st["stage"] = "done"
