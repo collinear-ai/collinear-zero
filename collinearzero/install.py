@@ -5,7 +5,8 @@
   claude       <root>/CLAUDE.md              <root>/skills/collinearzero/     Stop hook `cz gate` in <root>/settings.json
   codex        <root>/AGENTS.md              <root>/skills/collinearzero/     (none: Collinear Zero runs the tester itself)
 
-<root> is the user config directory (~/.config/opencode, ~/.claude, ~/.codex) or, with --scope project, the repository's
+<root> is the user config directory ($XDG_CONFIG_HOME/opencode, $CLAUDE_CONFIG_DIR, $CODEX_HOME; by default
+~/.config/opencode, ~/.claude, ~/.codex) or, with --scope project, the repository's
 .opencode/, .claude/ or .codex/ (opencode and codex then read the rules from the repository's AGENTS.md). The Claude
 Code attack-tester is never installed: `cz` passes it to its own session only. Every edited file is backed up once
 (`<file>.cz-bak`), and <root>/collinearzero.manifest.json lists what was added so `cz uninstall` can remove it.
@@ -31,7 +32,7 @@ def root_dir(harness: str, scope: str, repo: Path) -> Path:
     if harness == "opencode":
         return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "opencode"
     if harness == "claude":
-        return Path.home() / ".claude"
+        return Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude"))
     return Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
 
 

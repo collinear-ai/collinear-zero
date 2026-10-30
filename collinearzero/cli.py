@@ -83,6 +83,11 @@ def cmd_recheck(a):
     from .review import Clock, recheck_phase, summary
     repo = Path(a.repo).resolve()
     st = load_state()
+    if not st or st.get("repo") != str(repo):
+        raise SystemExit("cz recheck: no active task for this repository; run `cz init` first")
+    # A recheck may restore the checkpoint, so it only runs after a fix round that `cz review` forwarded findings for.
+    if st.get("stage") != "fix":
+        raise SystemExit(f"cz recheck: no fix round to recheck (stage: {st.get('stage')})")
     info = json.loads((ws() / "review.json").read_text()) if (ws() / "review.json").exists() else {}
     info["tester_session"] = st.get("tester_session") or info.get("tester_session")
     recheck_phase(_harness_for(a, "tester_model"), repo, info, Clock(None))

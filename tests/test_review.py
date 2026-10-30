@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from collinearzero import gate, review, triage as tr, workspace as w
+from collinearzero import cli, gate, review, triage as tr, workspace as w
 from collinearzero.harnesses import Harness, Session
 from tests.helpers import TempWS
 
@@ -94,6 +94,42 @@ class ReviewLoopTest(TempWS):
         info = review.review_loop(h, h, self.repo, None, review.Clock(None))
         self.assertIn("FINDINGS TO ACT ON", info["forward"])
         self.assertEqual(w.load_state()["stage"], "fix")
+
+
+class RecheckCommandTest(TempWS):
+    def setUp(self):
+        super().setUp()
+        self.write("app.py", "v-orig\n")
+        w.init(self.repo, "task\n")
+        self.write("app.py", "v-patched\n")
+        self._get = cli.harnesses.get
+
+    def tearDown(self):
+        cli.harnesses.get = self._get
+        super().tearDown()
+
+    def recheck(self, fake):
+        cli.harnesses.get = lambda *a, **k: fake
+        cli.main(["--repo", str(self.repo), "recheck"])
+
+    def test_refused_without_a_fix_round(self):
+        fake = FakeHarness(self.repo, ["BYPASSES:\nnone found\n", "RECHECK: BROKEN"])
+        review.review_loop(fake, fake, self.repo, None, review.Clock(None))     # nothing forwarded: stage done
+        self.write("app.py", "v-later-work\n")
+        with self.assertRaises(SystemExit):
+            self.recheck(fake)
+        self.assertEqual((self.repo / "app.py").read_text(), "v-later-work\n")  # not reverted
+        self.assertEqual([c[0] for c in fake.calls], ["tester"])
+
+    def test_after_forwarded_review(self):
+        fake = FakeHarness(self.repo, [REPORT, "FAIL x\nRECHECK: BROKEN"])
+        review.review_loop(fake, fake, self.repo, None, review.Clock(None))     # forwarded: stage fix
+        self.write("app.py", "v-overfixed\n")
+        self.recheck(fake)
+        self.assertEqual((self.repo / "app.py").read_text(), "v-patched\n")    # the fix round is reverted
+        self.assertEqual(w.load_state()["stage"], "done")
+        with self.assertRaises(SystemExit):                                     # and only once
+            self.recheck(fake)
 
 
 class GateTest(TempWS):

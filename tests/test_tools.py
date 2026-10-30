@@ -77,6 +77,17 @@ class InstallTest(TempWS):
         self.assertFalse((self.repo / ".claude/settings.json").exists())
         self.assertFalse(install.installed("claude", self.repo))
 
+    def test_user_scope_config_dirs(self):
+        import os
+        os.environ.update(XDG_CONFIG_HOME=str(self.tmp / "xdg"), CODEX_HOME=str(self.tmp / "codex"),
+                          CLAUDE_CONFIG_DIR=str(self.tmp / "claude"))
+        for h in ("opencode", "claude", "codex"):
+            install.install(h, "user", self.repo)
+        self.assertTrue((self.tmp / "xdg/opencode/AGENTS.md").exists())
+        self.assertTrue((self.tmp / "claude/CLAUDE.md").exists())
+        self.assertTrue((self.tmp / "codex/AGENTS.md").exists())
+        self.assertFalse((self.tmp / "home/.claude").exists())
+
 
 class RenderTest(unittest.TestCase):
     # Model pins, plus the experiment labels from the untracked .lint-labels if present (as in scripts/lint.py).
