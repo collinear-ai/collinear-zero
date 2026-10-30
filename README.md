@@ -1,4 +1,13 @@
-# <img src="assets/logo.png" alt="" width="48" height="48" align="middle"> Collinear Zero
+# Collinear Zero <img src="assets/logo.png" alt="" width="48" height="48" align="texttop"> 
+
+<p align="center">
+  <a href="docs/how-it-works.md"><img src="https://img.shields.io/badge/docs-how%20it%20works-FFD43B?style=for-the-badge" alt="Docs"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-4c1?style=for-the-badge" alt="License: Apache-2.0"></a>
+  <a href="https://collinear.ai"><img src="https://img.shields.io/badge/built%20by-Collinear%20AI-7B2FF7?style=for-the-badge" alt="Built by Collinear AI"></a>
+  <br>
+  <a href="pyproject.toml"><img src="https://img.shields.io/badge/python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.9+"></a>
+  <a href="https://github.com/collinear-ai/collinear-zero/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/collinear-ai/collinear-zero/ci.yml?branch=main&style=for-the-badge&label=ci" alt="CI"></a>
+</p>
 
 Turn a security finding (a CVE, advisory, CWE description, audit or scanner result) into a fix with the coding agent
 you already use (opencode, Claude Code or Codex), then check that fix with an **independent attack-tester** before
