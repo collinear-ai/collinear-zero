@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 from . import render
+from .workspace import ws
 
 BEGIN, END = "<!-- collinearzero:begin -->", "<!-- collinearzero:end -->"
 BLOCK = re.compile(re.escape(BEGIN) + r".*?" + re.escape(END) + r"\n?", re.S)
@@ -167,7 +168,31 @@ def uninstall(harness: str, scope: str, repo: Path) -> list[str]:
     return removed
 
 
+def _installed_rules(harness: str, repo: Path) -> list[str]:
+    files = [rules_file(harness, s, repo) for s in ("user", "project")]
+    return [t for t in (f.read_text() for f in files if f.exists()) if BEGIN in t]
+
+
 def installed(harness: str, repo: Path) -> bool:
     """The rules are in place for this harness, at user or project scope."""
-    return any(rules_file(harness, s, repo).exists() and BEGIN in rules_file(harness, s, repo).read_text()
-               for s in ("user", "project"))
+    return bool(_installed_rules(harness, repo))
+
+
+WS_IN_RULES = re.compile(r"`([^`\s]+)/task\.md`")
+
+
+def names_workspace(harness: str, repo: Path) -> bool:
+    """The installed rules name the current workspace. They are rendered with the workspace of install time, so a run
+    with another CZ_WS has to tell the agent where its workspace is."""
+    cur = os.path.normpath(str(ws()))
+    return any(os.path.normpath(m) == cur for t in _installed_rules(harness, repo) for m in WS_IN_RULES.findall(t))
+
+
+def workspace_note(repo: Path) -> str:
+    """For `cz init` and `cz status`, which an interactive agent runs first: where the workspace is, when the installed
+    rules name another one."""
+    hs = [h for h in ("opencode", "claude", "codex") if installed(h, repo)]
+    if not hs or all(names_workspace(h, repo) for h in hs):
+        return ""
+    return (f"note: the workspace for this task is {ws()} (task.md and orig/ are there); wherever the Collinear Zero "
+            "rules or skill name another workspace path, use this one instead.")

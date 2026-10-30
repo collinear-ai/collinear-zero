@@ -8,12 +8,29 @@ recheck is on, and opencode continues a response cut off at the output limit up 
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 
 from . import harnesses, install
 from .review import Clock, review_loop, summary
 from .workspace import DIFF_EXCLUDES, init, load_state, save_state, tree_diff, ws
+
+WS_NOTE = ("Collinear Zero workspace for this task: {ws} (the finding is {ws}/task.md, the original is {ws}/orig). "
+           "Wherever the Collinear Zero rules or skill name another workspace path, use this one instead.\n\n")
+
+
+def _gone(pid) -> bool:
+    """True when `pid` is a process id that no longer runs (a `cz run` that crashed or was killed)."""
+    if not isinstance(pid, int):
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return False
+    return False
 
 
 def run(task: str, repo: Path, harness: str, model: str | None = None, tester_model: str | None = None,
@@ -27,14 +44,19 @@ def run(task: str, repo: Path, harness: str, model: str | None = None, tester_mo
                                 f"the Collinear Zero rules are not installed for {harness}: run `cz install --harness {harness}`")
     if problem:
         raise SystemExit(f"cz run: {problem}")
+    st = load_state()
+    if st and st.get("stage") != "done" and st.get("repo") != str(repo) and not _gone(st.get("pid")):
+        raise SystemExit(f"cz run: the workspace {ws()} holds an active task for {st.get('repo')}; "
+                         "finish it, run `cz reset`, or set CZ_WS to another directory")
     print(init(repo, task, force=True))
     st = load_state()
-    st.update(harness=harness, mode="run", model=model, tester_model=tester_model or model)
+    st.update(harness=harness, mode="run", model=model, tester_model=tester_model or model, pid=os.getpid())
     save_state(st)
     t0 = time.time()
     clock = Clock(t0 + time_limit)
     print(f"cz run: agent phase ({harness}, at most {int(time_limit - reserve)} s)", flush=True)
-    s = agent.agent(task, time_limit - reserve)
+    prompt = task if install.names_workspace(harness, repo) else WS_NOTE.format(ws=ws()) + task
+    s = agent.agent(prompt, time_limit - reserve)
     rec = {"agent": {"session": s.sid, "secs": round(s.secs, 1), "rc": s.rc, "timed_out": s.timed_out, "log": s.log}}
     if not s.sid:
         rec["stop"] = "the agent session did not start"

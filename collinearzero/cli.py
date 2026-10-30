@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+import shlex
 import shutil
 import sys
 from pathlib import Path
@@ -15,18 +17,38 @@ def _task_text(arg: str) -> str:
     return sys.stdin.read() if arg == "-" else Path(arg).read_text()
 
 
+def _with_note(text: str, repo: str) -> str:
+    note = install.workspace_note(Path(repo).resolve())
+    return f"{text}\n{note}" if note else text
+
+
+def _shell_words(argv: list[str]) -> str:
+    """argv words as one shell line: a word with spaces or quotes is quoted; a `NAME=value` word keeps its name
+    unquoted (so it is still an assignment) and a `{junit}` placeholder is left for regress to fill."""
+    out = []
+    for word in argv:
+        if re.fullmatch(r"[\w@%+=:,./{}-]+", word):
+            out.append(word)
+        elif re.match(r"[A-Za-z_]\w*=", word):
+            name, _, value = word.partition("=")
+            out.append(f"{name}={shlex.quote(value)}")
+        else:
+            out.append(shlex.quote(word))
+    return " ".join(out)
+
+
 def cmd_init(a):
-    print(init(Path(a.repo), _task_text(a.task), a.force))
+    print(_with_note(init(Path(a.repo), _task_text(a.task), a.force), a.repo))
 
 
 def cmd_status(a):
     st = load_state()
     if not st:
-        print(f"no task (workspace {ws()})")
+        print(_with_note(f"no task (workspace {ws()})", a.repo))
         return
     repo = Path(a.repo).resolve()
     tag = "active task for this repository" if st.get("repo") == str(repo) and st.get("stage") != "done" else "no active task for this repository"
-    print(f"{tag}: workspace {ws()}, repository {st.get('repo')}, stage {st.get('stage')}")
+    print(_with_note(f"{tag}: workspace {ws()}, repository {st.get('repo')}, stage {st.get('stage')}", a.repo))
 
 
 def cmd_reset(a):
@@ -114,7 +136,9 @@ def cmd_regress(a):
     cmd = a.command[1:] if a.command[:1] == ["--"] else a.command
     if not cmd:
         raise SystemExit("usage: cz regress [--timeout S] -- <test command>")
-    rc, out = regress(Path(a.repo).resolve(), " ".join(cmd), a.timeout)
+    # One argument is a shell command line as written ("pytest | tee log"); several are argv words, quoted to survive
+    # the shell (`-k "a and b"` stays one word).
+    rc, out = regress(Path(a.repo).resolve(), cmd[0] if len(cmd) == 1 else _shell_words(cmd), a.timeout)
     print(out)
     sys.exit(rc)
 
