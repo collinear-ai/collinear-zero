@@ -20,7 +20,7 @@ class FakeHarness(Harness):
         self.tester_edits = tester_edits
 
     def agent(self, prompt, cap_s, sid=None, tag="agent"):
-        self.calls.append(("agent", sid, prompt[:40]))
+        self.calls.append(("agent", sid, prompt[:40], cap_s))
         (self.repo / "app.py").write_text(self.fix_text)
         return Session(sid or "agent-1", "done", 0, False, 1.0)
 
@@ -89,11 +89,46 @@ class ReviewLoopTest(TempWS):
         self.assertIn("fix round timed out", s)
         self.assertIn("recheck skipped (time)", s)
 
+    def test_fix_round_leaves_time_for_the_recheck(self):
+        import time
+        h = FakeHarness(self.repo, [REPORT, "RECHECK: OK"])
+        info = review.review_loop(h, h, self.repo, "agent-1", review.Clock(time.time() + 1000))
+        self.assertLessEqual(h.calls[1][3], 700)
+        self.assertEqual(info["recheck"]["verdict"], "OK")
+
+    def test_reserve_never_skips_the_fix_round(self):
+        import time
+        h = FakeHarness(self.repo, [REPORT, "RECHECK: OK"])
+        info = {"forward": "findings"}
+        review.fix_phase(h, "agent-1", info, review.Clock(time.time() + 330))
+        self.assertTrue(info.get("forwarded"))                 # too little for both: the fix round still runs
+
+    def test_patched_file_is_no_backing(self):
+        rep = "BYPASSES:\nnone found\n\nREGRESSIONS:\n[R1] orig: differs | backing: app.py\n\nCHECKED:\n- 1 ok\n"
+        h = FakeHarness(self.repo, [rep])
+        info = review.review_loop(h, h, self.repo, "agent-1", review.Clock(None))
+        self.assertEqual(info["stop"], "nothing_forwarded")
+        self.assertEqual([d["id"] for d in info["dropped"]], ["R1"])
+
     def test_manual_review_without_session(self):
         h = FakeHarness(self.repo, [REPORT])
         info = review.review_loop(h, h, self.repo, None, review.Clock(None))
         self.assertIn("FINDINGS TO ACT ON", info["forward"])
         self.assertEqual(w.load_state()["stage"], "fix")
+
+
+class TriageCommandTest(TempWS):
+    def test_cli_excludes_patched_files(self):
+        import contextlib, io
+        self.write("app.py", "v1\n")
+        w.init(self.repo, "t")
+        self.write("app.py", "v2\n")
+        rep = self.write("../report.md", "BYPASSES:\nnone\n\nREGRESSIONS:\n[R1] orig: differs | backing: app.py\n",
+                         root=self.repo)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.main(["--repo", str(self.repo), "triage", str(rep)])
+        self.assertEqual(out.getvalue().strip(), "nothing forwarded")
 
 
 class RecheckCommandTest(TempWS):

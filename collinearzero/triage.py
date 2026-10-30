@@ -14,9 +14,39 @@ from __future__ import annotations
 import re
 from typing import Callable
 
-HDR = lambda h: re.compile(r"(?im)^[#*`\s-]*\**`?%s`?\**\s*:?" % h)   # noqa: E731
+# A header line opens a section. It is a markdown heading or bold label whose first word is the section word, in any case
+# ("## Bypasses found", "**Checked requirements:**"); or the word in capitals; or the word in any case followed by a
+# colon, a dash, a full stop or the end of the line, with an optional count such as "(2)" in between. Prose such as
+# "Checked the diff first." does not open a section.
+_HDR_TAIL = r"`?\**[ \t]*(?:\([^)\n]*\))?[ \t]*\**[ \t]*"
+HDR = lambda h: re.compile(   # noqa: E731
+    r"(?m)^[ \t>-]*(?:\d+[.)][ \t]*)?(?:(?:#{1,6}[ \t]*\**|\*\*)[ \t]*`?(?i:%s)(?![A-Za-z])[^\n:]*|[\s*`-]*`?(?:%s(?![A-Za-z])|"
+    r"(?i:%s)(?=%s(?::|[-–—]|\.?\r?$))))%s:?" % (h, h, h, _HDR_TAIL, _HDR_TAIL))
+# A section with nothing in it: its first line starts with "none", "N/A", "nothing", "no bypasses", "I found no
+# regressions", "did not find any", ... followed only by punctuation or a word such as "found" or "for". A line that
+# uses the word for something else is a finding: "None of the encodings are blocked", "Found no check on symlinks",
+# "No regression test covers it".
+_KIND = r"(?:bypass(?:es)?|regressions?)"
+EMPTY = re.compile(
+    r"(?i)[\s(\[_*`'\"-]*(?:none|n/?a|nothing|no(?:\s+\w+)?\s+%s|(?:i\s+)?(?:found|observed|saw)\s+no(?:\s+\w+)?\s+%s|"
+    r"there\s+(?:are|were)\s+no(?:\s+\w+)?\s+%s|(?:i\s+)?(?:did\s+not|didn't|could\s+not|couldn't)\s+find\s+any"
+    r"(?:\s+%s)?)(?=\s*(?:$|[^\w\s]|(?:(?:were|was|have\s+been|has\s+been)\s+)?(?:found|observed|identified|detected|"
+    r"seen)\b|for\b|to\s+report\b|so\s+far\b))" % ((_KIND,) * 4))
+# A recheck line in the asked-for form `FAIL <input> | observed <result>` that does not mention the original: one
+# that does ("orig: same", "unchanged from the original") is left to the tester's own verdict.
+FAIL_RUN = re.compile(r"(?im)^\s*[-*]?\s*FAIL\s+(?![^\n]*(?:\borig(?:inal)?\b|pre-?existing|also\s+fails))"
+                      r"[^:\s][^\n]*\|\s*observed")
+
+
+def _empty(body: str) -> bool:
+    first = next((ln for ln in body.splitlines() if ln.strip()), "")
+    return bool(EMPTY.match(first))
+
+
 ITEM = re.compile(r"(?m)^[\s>*`-]*\[(B|R)(\d+)\]")
 BACKING = re.compile(r"(?i)backing\s*:\s*`?([^`|\n]+?)`?\s*(?:\||$)", re.M)
+BACKING_FILE = re.compile(r"(?i)(^|/)(tests?|spec|specs|__tests__|docs?|examples?)(/|$)|(^|/)(test_|readme)|"
+                          r"[._-](test|spec)s?\.|\.(md|rst|txt|adoc)$")
 VERDICT = re.compile(r"RECHECK:\s*\**\s*(OK|BROKEN)", re.I)
 
 TESTER_MSG = "Review the current patch. Follow your instructions."
@@ -64,11 +94,11 @@ def triage(rep: str, path_exists: Callable[[str], bool]) -> dict:
     if not found:
         body = re.sub(r"(?m)^\s*(-{3,}|\*{3,}|_{3,})\s*$", "", HDR("BYPASSES").sub("", sec["BYPASSES"], count=1))
         body = body.strip(" \n\t*`:#-")
-        if body and not re.match(r"(?i)^(none|no bypass|nothing)", body):
+        if body and not _empty(body):
             out["fallback"] = True
             out["kept"].append({"id": "BYPASSES", "kind": "bypass", "text": sec["BYPASSES"].strip()})
         rb = HDR("REGRESSIONS").sub("", sec.get("REGRESSIONS", ""), count=1).strip(" \n\t*`:#-")
-        if rb and not re.match(r"(?i)^(none|no regression|nothing)", rb):
+        if rb and not _empty(rb):
             out["dropped"].append({"id": "REGRESSIONS", "kind": "regression", "why": "unstructured report"})
     for iid, text in found:
         if iid.startswith("B"):
@@ -76,7 +106,8 @@ def triage(rep: str, path_exists: Callable[[str], bool]) -> dict:
             continue
         m = BACKING.search(text)
         back = m.group(1).strip() if m else ""
-        paths = [p.strip(" .,;:'\"") for p in re.split(r"[,\s]+", back) if "/" in p or "." in p]
+        paths = [p.strip(" .,;:'\"") for p in re.split(r"[,\s]+", back)
+                 if "/" in p or "." in p or re.fullmatch(r"[A-Z][A-Za-z0-9_-]*", p)]   # README, Makefile
         paths = [p.split(":")[0] for p in paths if p and p.lower() not in ("none", "n/a")]
         ok = [p for p in paths if path_exists(p)]
         rec = {"id": iid, "kind": "regression", "backing": back[:200], "paths_found": ok}
@@ -100,20 +131,35 @@ def forward_body(t: dict) -> str:
     return "\n\n".join(parts)
 
 
-def repo_path_checker(repo) -> Callable[[str], bool]:
-    """A `path_exists` for `triage`: relative paths resolve inside `repo`; nothing may escape it with `..`."""
+def repo_path_checker(repo, patched: frozenset[str] = frozenset(), orig=None) -> Callable[[str], bool]:
+    """A `path_exists` for `triage`: a file in `repo` (relative paths resolve inside it; nothing may escape it with
+    `..`) that the repository had before the patch (`orig`, the snapshot). A file the patch changed (`patched`,
+    relative to `repo`) counts only if it is a test, doc or example: a test the patch edited is the strongest evidence
+    of a regression, but the patched source shows only what the patch does."""
     from pathlib import Path
     root = Path(repo).resolve()
+    before = Path(orig) if orig else None
 
     def exists(p: str) -> bool:
         q = Path(p) if p.startswith("/") else root / (p[2:] if p.startswith("./") else p)
         if ".." in q.parts or not (q == root or root in q.parents):
             return False
-        return q.exists()
+        rel = q.relative_to(root)
+        if not q.is_file() or (before is not None and not (before / rel).is_file()):
+            return False      # a directory is too vague; a file the patch added is not the repository's
+        if any(r.as_posix() in patched for r in (rel, *rel.parents)):
+            return bool(BACKING_FILE.search(rel.as_posix()))
+        return True
     return exists
 
 
 def recheck_verdict(text: str) -> dict:
-    m = VERDICT.search(text or "")
-    return {"verdict": m.group(1).upper() if m else None,
-            "failed": [ln.strip()[:200] for ln in (text or "").splitlines() if re.match(r"\s*[-*]?\s*FAIL\b", ln)][:20]}
+    """The last RECHECK line decides (an earlier one may quote the instruction). A `FAIL <input> | observed` line for a
+    run that did not also fail on the original makes it BROKEN."""
+    ms = list(VERDICT.finditer(text or ""))
+    failed = [ln.strip()[:200] for ln in (text or "").splitlines() if re.match(r"\s*[-*]?\s*FAIL\b", ln)][:20]
+    verdict = ms[-1].group(1).upper() if ms else None
+    out = {"verdict": verdict, "failed": failed}
+    if verdict == "OK" and FAIL_RUN.search(text or ""):
+        out.update(verdict="BROKEN", overridden="RECHECK: OK with a FAIL run")
+    return out
