@@ -25,7 +25,7 @@ class FakeHarness(Harness):
         return Session(sid or "agent-1", "done", 0, False, 1.0)
 
     def tester(self, prompt, cap_s, sid=None, tag="review"):
-        self.calls.append(("tester", sid, prompt[:40]))
+        self.calls.append(("tester", sid, prompt[:40], cap_s))
         if self.tester_edits:
             (self.repo / "app.py").write_text("tester wrote here\n")
         text = self.tester_texts.pop(0) if self.tester_texts else ""
@@ -158,6 +158,15 @@ class GateTest(TempWS):
         self.assertIn("recheck BROKEN", r2["systemMessage"])
         self.assertEqual((self.repo / "app.py").read_text(), "v-patched\n")
         self.assertEqual(gate.gate(self.event()), {})           # done: further stops pass
+
+    def test_stop_before_any_edit_passes(self):
+        self.write("app.py", "v-orig\n")                         # the agent asked a question before editing
+        self.assertEqual(gate.gate(self.event()), {})
+        self.assertEqual(self.fake.calls, [])
+        self.assertEqual(w.load_state()["stage"], "agent")
+        self.write("app.py", "v-patched\n")
+        self.assertEqual(gate.gate(self.event())["decision"], "block")
+        self.assertLessEqual(self.fake.calls[0][3], gate.REVIEW_BUDGET - 300)   # inside the hook's timeout
 
     def test_inactive(self):
         import os
