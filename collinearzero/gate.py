@@ -1,8 +1,10 @@
 """`cz gate`: the finish gate for interactive Claude Code, installed as a Stop hook.
 
 A Stop hook runs when the agent tries to end its turn. With an active Collinear Zero task for this repository:
-  first stop      -> run the attack-tester and the triage; if anything is forwarded, block the stop and hand the
-                     findings to the agent (that continuation is the fix round), else let it stop;
+  first stop      -> if the tree still matches the snapshot (the agent stopped to ask something before editing), let
+                     it stop and wait for a later one; else run the attack-tester and the triage within the hook's
+                     timeout; if anything is forwarded, block the stop and hand the findings to the agent (that
+                     continuation is the fix round), else let it stop;
   next stop       -> recheck in the tester's session, restore the checkpoint on RECHECK: BROKEN, let it stop.
 Without an active task, or inside a session Collinear Zero started itself (CZ_GATE=off), it does nothing.
 """
@@ -11,11 +13,16 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 from . import harnesses
 from .review import Clock, recheck_phase, summary, tester_phase
-from .workspace import load_state, save_state, ws
+from .workspace import DIFF_EXCLUDES, load_state, save_state, tree_diff, ws
+
+# The Stop hook is installed with a 2,000 s timeout; the first-stop review must end before the hook is killed
+# (a killed hook leaves the stage at "agent" and the tester's edits un-restored).
+REVIEW_BUDGET = 1800
 
 
 def gate(stdin_text: str) -> dict:
@@ -34,7 +41,10 @@ def gate(stdin_text: str) -> dict:
     tester = harnesses.get("claude", repo, model)
     cap = float(os.environ.get("CZ_TESTER_CAP", "1500"))
     if st["stage"] == "agent":
-        info = tester_phase(tester, repo, Clock(None), cap)
+        orig = ws() / "orig"
+        if orig.exists() and not tree_diff(orig, repo, DIFF_EXCLUDES):
+            return {}
+        info = tester_phase(tester, repo, Clock(time.time() + REVIEW_BUDGET), cap)
         st = load_state()
         st["tester_session"] = info.get("tester_session", "")
         st["stage"] = "fix" if info["forward"] else "done"

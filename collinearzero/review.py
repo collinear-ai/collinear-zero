@@ -95,7 +95,7 @@ def recheck_phase(tester: Harness, repo: Path, info: dict, clock: Clock) -> None
     if not tsid or clock.left() <= 240:
         info["recheck"] = {"verdict": None, "skipped": "no tester session" if not tsid else "time"}
         return
-    snapshot(repo, ws() / "post_fix", skip=(".git",))
+    snapshot(repo, ws() / "post_fix", skip=REVERT_EXCLUDES)
     s = tester.tester(tr.RECHECK, min(clock.left() - 60, 600), sid=tsid, tag="review_recheck")
     text = next((t for t in reversed(s.texts or [s.text]) if tr.VERDICT.search(t or "")), s.text)
     (ws() / "review_recheck.md").write_text(text or "")
