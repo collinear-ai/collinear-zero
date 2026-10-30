@@ -80,7 +80,7 @@ Your own checks tend to cover only the inputs your fix already handles. Before y
    pass.
 4. **Acting on forwarded findings.** Changes made for findings are what most often break a correct patch.
    - Fix a bypass in the function or branch it names. Keep public signatures, existing mechanisms and components; do
-     not replace them for a finding. A bypass outside the weakness the task describes (`orig: same` and not that
+     not replace them for a finding. A bypass outside the weakness the task describes (`orig="same"` and not that
      weakness) may be left alone: say why in one line.
    - Fix a forwarded regression so the backed input works again, without reopening any attack.
    - Your patch as it stood when you stopped is at `{{WS}}/pre_review`. After every fix re-run the skill's step 5

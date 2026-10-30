@@ -52,9 +52,11 @@ def cmd_revert(a):
 
 
 def cmd_triage(a):
+    from .review import patched_paths
     from .triage import forward_body, repo_path_checker, triage
     rep = _task_text(a.report)
-    t = triage(rep, repo_path_checker(Path(a.repo)))
+    orig = ws() / "orig"
+    t = triage(rep, repo_path_checker(Path(a.repo), patched_paths(Path(a.repo).resolve()), orig if orig.exists() else None))
     print(json.dumps({k: v for k, v in t.items()}, indent=2) if a.json else (forward_body(t) or "nothing forwarded"))
 
 
