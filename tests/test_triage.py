@@ -106,6 +106,10 @@ class TriageTest(unittest.TestCase):
         v = tr.recheck_verdict('<recheck verdict="OK"><run result="fail" orig="fail">b | observed 404</run></recheck>')
         self.assertEqual((v["verdict"], v["failed"]), ("OK", []))   # it failed on the original too
 
+    def test_summary_flags_a_recheck_with_no_verdict(self):
+        from collinearzero.review import summary
+        self.assertIn("gave no verdict", summary({"recheck": {"verdict": None, "failed": []}}))
+
 
 class PathCheckerTest(unittest.TestCase):
     def test_inside_only(self):

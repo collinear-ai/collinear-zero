@@ -148,4 +148,6 @@ def summary(info: dict) -> str:
         parts.append(f"recheck {rc['verdict']}" + (", fix round reverted to the checkpoint" if rc.get("reverted") else ""))
     elif rc.get("skipped"):
         parts.append(f"recheck skipped ({rc['skipped']}): the fix round is unverified")
+    elif rc:
+        parts.append("recheck gave no verdict: the fix round is unverified")
     return "; ".join(parts)

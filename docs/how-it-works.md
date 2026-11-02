@@ -24,7 +24,8 @@ example) that uses the input as legitimate.
 
 An empty section is the absence of elements, not a sentence, so triage never has to read prose. Inputs are written
 verbatim (attack inputs hold `<`, `&` and `>`), so the block is read with a tolerant tag scanner rather than an XML
-parser: the last `<report>` counts, and a reply cut short before its closing tags still parses.
+parser: the last `<report>` counts, and a reply cut short before its closing tags still parses. The text inside the
+elements that hold inputs and results is hidden from the scanner, so an input such as `<report>` opens nothing.
 
 The agent acts on whatever it is shown. Collinear Zero runs the tester itself, after the agent stops, and filters
 the report before the agent sees it.

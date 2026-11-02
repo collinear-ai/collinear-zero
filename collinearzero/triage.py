@@ -11,7 +11,8 @@ its report as one <report> block (the last one in the reply counts):
 A reply with no <report> forwards nothing. No model takes part in this decision.
 
 The blocks are read with a tolerant tag scanner, not an XML parser: attack inputs hold unescaped `<`, `&` and `>`,
-and a reply cut short may lack its closing tags.
+and a reply cut short may lack its closing tags. The text inside the elements that hold inputs and results is hidden
+from the scanner, so an input such as `<report>` or `</bypass>` cannot open or close anything.
 """
 from __future__ import annotations
 
@@ -20,6 +21,10 @@ from typing import Callable
 
 TOP = r"</?(?:report|bypass|regression|checked|note)\b"   # an element of the report ends where the next one starts
 _ATTRS = r"""((?:"[^"]*"|'[^']*'|[^'">])*)"""
+# The elements whose text is data. One that holds another of its own tag is left alone: its closing tag is missing, and
+# hiding up to the next one would hide the findings in between.
+OPAQUE = re.compile(r"""(?is)<(?P<t>case|entry_point|observed|expected|quote|checked|note|run)\b%s>"""
+                    r"""(?P<in>(?:(?!<(?P=t)\b).)*?)</(?P=t)\s*>""" % _ATTRS)
 ATTR = re.compile(r"""([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>/]+))""")
 BACKING_FILE = re.compile(r"(?i)(^|/)(tests?|spec|specs|__tests__|docs?|examples?)(/|$)|(^|/)(test_|readme)|"
                           r"[._-](test|spec)s?\.|\.(md|rst|txt|adoc)$")
@@ -53,30 +58,44 @@ def _enum(v: str) -> str:
     return re.sub(r"[\s-]+", "_", v.strip().lower())
 
 
-def block(tag: str, text: str, inner: str = TOP) -> tuple[dict[str, str], str] | None:
-    """(attributes, body) of the last <tag> in `text` that is closed or holds an `inner` element: an earlier block may
-    quote the instruction, and a bare mention ("my <report> above") is no block. Without its closing tag the body runs
-    to the end."""
+def _hide(text: str) -> str:
+    """`text` with the data inside OPAQUE elements blanked. Offsets are kept, so a match on it slices the original."""
+    return OPAQUE.sub(lambda m: m.group(0)[:m.start("in") - m.start()] + " " * len(m.group("in"))
+                      + m.group(0)[m.end("in") - m.start():], text)
+
+
+def block(tag: str, text: str, inner: str = TOP, cut_short: str = "") -> tuple[dict[str, str], str] | None:
+    """(attributes, body) of the block in `text` that is the report: the last that holds an `inner` element and starts
+    its line, else the last that holds one, else the last empty one that starts its line. A block quoted in a sentence
+    ("the <report></report> format") or a bare mention is no block. Without its closing tag the body runs to the end;
+    an unclosed block with no `inner` element counts only if its line starts with it and its attributes match
+    `cut_short`."""
     text = text or ""
+    seen = _hide(text)
     found = []
-    for m in re.finditer(r"(?i)<%s\b%s>" % (tag, _ATTRS), text):
+    for m in re.finditer(r"(?i)<%s\b%s>" % (tag, _ATTRS), seen):
         a = m.group(1).rstrip()
+        own_line = not re.sub(r"[>`*_\s-]+", "", seen[seen.rfind("\n", 0, m.start()) + 1:m.start()])
         if a.endswith("/"):
-            found.append((_attrs(a[:-1]), "", True))
+            if own_line:
+                found.append((0, 1, _attrs(a[:-1]), ""))
             continue
-        end = re.compile(r"(?i)</%s\s*>" % tag).search(text, m.end())
-        body = text[m.end():end.start() if end else len(text)]
-        found.append((_attrs(a), body, bool(end) or bool(re.search(r"(?i)" + inner, body))))
-    return next(((a, b) for a, b, ok in reversed(found) if ok), None)
+        end = re.compile(r"(?i)</%s\s*>" % tag).search(seen, m.end())
+        stop = end.start() if end else len(text)
+        full = bool(re.search(r"(?i)" + inner, seen[m.end():stop]))
+        if full or (own_line and (end or (cut_short and re.search(r"(?i)" + cut_short, a)))):
+            found.append((int(full), int(own_line), _attrs(a), text[m.end():stop]))
+    return max(reversed(found), key=lambda f: f[:2])[2:] if found else None
 
 
 def elems(tag: str, body: str, stop: str = TOP) -> list[tuple[dict[str, str], str, str]]:
     """[(attributes, inner text, raw element)] of each <tag> in `body`. An element without its closing tag ends where
     `stop` next matches. Self-closing elements have no inner text."""
     out = []
-    for m in re.finditer(r"(?is)<%s\b%s>(?:(?<=/>)|(.*?)(?:</%s\s*>|(?=%s)|\Z))" % (tag, _ATTRS, tag, stop), body):
+    for m in re.finditer(r"(?is)<%s\b%s>(?:(?<=/>)|(.*?)(?:</%s\s*>|(?=%s)|\Z))" % (tag, _ATTRS, tag, stop), _hide(body)):
         a = m.group(1).rstrip()
-        out.append((_attrs(a[:-1] if a.endswith("/") else a), (m.group(2) or "").strip(), m.group(0).strip()))
+        inner = body[m.start(2):m.end(2)] if m.group(2) else ""
+        out.append((_attrs(a[:-1] if a.endswith("/") else a), inner.strip(), body[m.start():m.end()].strip()))
     return out
 
 
@@ -84,8 +103,13 @@ def has_report(text: str) -> bool:
     return block("report", text) is not None
 
 
+def _recheck(text: str) -> tuple[dict[str, str], str] | None:
+    """A recheck cut short before its first run still says BROKEN; an OK with no run behind it says nothing."""
+    return block("recheck", text, inner=r"<run\b", cut_short=r"""verdict\s*=\s*["']?\s*broken""")
+
+
 def has_recheck(text: str) -> bool:
-    return block("recheck", text, inner=r"<run\b") is not None
+    return _recheck(text) is not None
 
 
 def _ids(found: list[tuple[dict[str, str], str, str]], prefix: str) -> list[str]:
@@ -105,10 +129,16 @@ def _ids(found: list[tuple[dict[str, str], str, str]], prefix: str) -> list[str]
 
 
 def _backing(a: dict[str, str], inner: str) -> list[str]:
-    """Each <backing> element is one path (a `backing="a, b"` attribute is read too), without a `:line` suffix."""
-    raw = [i for _, i, _ in elems("backing", inner, stop="<")] + re.split(r"\s*,\s*", a.get("backing", ""))
-    paths = [re.sub(r":\d+(?:[-:]\d+)*$", "", p.strip(" \n\t`'\"")) for p in raw]
-    return [p for p in paths if p and p.lower() not in ("none", "n/a")]
+    """The paths a <backing> element or a `backing="a, b"` attribute names, without a line or test suffix (`:12`,
+    `:L12`, `#L12`, `::test_x`). Words around them are not paths: `tests/a.py (line 12)` names tests/a.py."""
+    paths: list[str] = []
+    for raw in [i for _, i, _ in elems("backing", inner, stop="<")] + [a.get("backing", "")]:
+        whole = raw.strip(" \n\t`'\"")      # a path may hold a space
+        for p in [whole] + (re.split(r"[,\s]+", whole) if re.search(r"[,\s]", whole) else []):
+            p = re.split(r"[:#]", p.strip(" ,;'\"`()").rstrip("."), maxsplit=1)[0]
+            if ("/" in p or "." in p or re.fullmatch(r"[A-Z][A-Za-z0-9_-]*", p)) and p not in paths:   # README, Makefile
+                paths.append(p)
+    return [p for p in paths if p.lower() not in ("none", "n/a")]
 
 
 def triage(rep: str, path_exists: Callable[[str], bool]) -> dict:
@@ -173,12 +203,15 @@ def repo_path_checker(repo, patched: frozenset[str] = frozenset(), orig=None) ->
 def recheck_verdict(text: str) -> dict:
     """From the last <recheck> block (an earlier one may quote the instruction). A failed run that did not also fail on
     the original makes the verdict BROKEN whatever the block says."""
-    rb = block("recheck", text or "", inner=r"<run\b")
+    def failed_too(orig: str) -> bool:   # `same` is the word the tester's report uses for this
+        return orig.startswith("fail") or orig == "same"
+
+    rb = _recheck(text or "")
     if rb is None:
         return {"verdict": None, "failed": []}
     a, body = rb
     failed = [" ".join(inner.split())[:200] for ra, inner, _ in elems("run", body, stop=r"</?(?:run|recheck)\b")
-              if _enum(ra.get("result", "")) == "fail" and _enum(ra.get("orig", "")) != "fail"]
+              if _enum(ra.get("result", "")).startswith("fail") and not failed_too(_enum(ra.get("orig", "")))]
     said = _enum(a.get("verdict", "")).upper()
     out = {"verdict": "BROKEN" if said == "BROKEN" or failed else "OK" if said == "OK" else None, "failed": failed[:20]}
     if failed and said == "OK":
