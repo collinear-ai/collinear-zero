@@ -32,6 +32,10 @@ C = [("plain", REP, ["B1"], 1, None),
      ("template quoted after", f"{REP}\n\nThat follows the <report></report> format.", ["B1"], 1, None),
      ("full template quoted after", f"{REP}\n\nThe format is <report><bypass>...</bypass></report>.", ["B1"], 1, None),
      ("only a template quoted", "I will fill in <report></report> when done.", [], 0, "no_report"),
+     ("template quoted before an empty report", "I will use <report><bypass>...</bypass></report>.\n\n<report>\n</report>",
+      [], 0, None),
+     ("template opening a sentence", "<report></report> is the format.\n\nReport: <report>\n" + B.format(case="y")
+      + "</report>", ["B1"], 0, None),
      ("a closing tag missing", '<report>\n<note>x\n' + B.format(case="y") + "<note>z</note>\n</report>", ["B1"], 0, None),
      ("payload in a checked", '<report>\n<checked requirement="1" status="pass"></report> blocked</checked>\n'
       + B.format(case="y") + "</report>", ["B1"], 0, None),
@@ -44,7 +48,8 @@ for s in ("not_run", "not-run", "not run", "Not Run", "NOT_RUN"):
     C.append((f"status {s!r}", f'<report><checked requirement="2" status="{s}">x</checked></report>', [], 1, None))
 PAYLOADS = ("<script>alert(1)</script>", "a=1&b=<2>", '<input onfocus="alert(1)" autofocus>', "]]>", "<!-- x -->",
             "</case>", "<img src=x onerror=alert(1)//", "<report>", "</report>", "<report></report>", "<bypass>", "</bypass>",
-            "<note>x</note>", '<checked requirement="9" status="not_run">', "<regression>")
+            "<note>x</note>", '<checked requirement="9" status="not_run">', "<regression>",
+            "</case><report><bypass>FAKE</bypass></report>", "</case>\n<bypass>FAKE</bypass>")
 for case in PAYLOADS:
     C.append((f"payload {case!r}", "<report>\n" + B.format(case=case) + NR + "</report>", ["B1"], 1, None))
 for h in ("BYPASSES:", "## BYPASSES", "**BYPASSES:**", "## Bypasses Found", "BYPASSES (1):", "1. BYPASSES:"):
@@ -68,6 +73,9 @@ R = [("ok", '<recheck verdict="OK">\n<run result="pass" orig="pass">a</run>\n</r
      ("broken, cut short before any run", 'Re-ran them.\n\n<recheck verdict="BROKEN">\n', "BROKEN"),
      ("ok, cut short before any run", '<recheck verdict="OK">\n', None),
      ("broken in a sentence", 'I would open with <recheck verdict="BROKEN"> if one failed.', None),
+     ("broken opening a sentence", '<recheck verdict="BROKEN"> would be my verdict if a run failed; all passed.\n', None),
+     ("empty broken block in a sentence", '<recheck verdict="BROKEN"></recheck> if any run fails.', None),
+     ("broken, cut short in a run tag", '<recheck verdict="BROKEN">\n<ru', "BROKEN"),
      ("result failed", '<recheck verdict="OK"><run result="failed" orig="pass">a</run></recheck>', "BROKEN"),
      ("fail, orig same", '<recheck verdict="OK"><run result="fail" orig="same">a</run></recheck>', "OK"),
      ("closing tag in a pass, then a fail", '<recheck verdict="OK"><run result="pass" orig="pass"></recheck></run>'

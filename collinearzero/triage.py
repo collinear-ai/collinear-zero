@@ -21,10 +21,15 @@ from typing import Callable
 
 TOP = r"</?(?:report|bypass|regression|checked|note)\b"   # an element of the report ends where the next one starts
 _ATTRS = r"""((?:"[^"]*"|'[^']*'|[^'">])*)"""
-# The elements whose text is data. One that holds another of its own tag is left alone: its closing tag is missing, and
-# hiding up to the next one would hide the findings in between.
-OPAQUE = re.compile(r"""(?is)<(?P<t>case|entry_point|observed|expected|quote|checked|note|run)\b%s>"""
-                    r"""(?P<in>(?:(?!<(?P=t)\b).)*?)</(?P=t)\s*>""" % _ATTRS)
+# The elements whose text is data, and what the report's structure lets follow each one's closing tag. An element ends
+# at the first closing tag followed by such text, so an input that holds its own closing tag stays data; an input whose
+# own closing tag is followed by what looks like the next field cannot be told apart from it.
+_FIELD = r"</(?:bypass|regression)\b|<(?!/|(?:report|recheck|bypass|regression|checked|note|run)\b)"
+_AFTER = {**dict.fromkeys(("case", "entry_point", "observed", "expected", "quote"), _FIELD),
+          **dict.fromkeys(("checked", "note"), r"</report\b|<(?!/|(?:report|recheck|run)\b)"),
+          "run": r"</recheck\b|<(?!/|(?:report|recheck|bypass|regression|checked|note)\b)"}
+OPAQUE = re.compile(r"(?i)<(%s)\b%s>" % ("|".join(_AFTER), _ATTRS))
+BARE = r"[>`*_\s-]+"   # what may stand around a block on its lines: quote marks, fences, emphasis, list dashes
 ATTR = re.compile(r"""([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>/]+))""")
 BACKING_FILE = re.compile(r"(?i)(^|/)(tests?|spec|specs|__tests__|docs?|examples?)(/|$)|(^|/)(test_|readme)|"
                           r"[._-](test|spec)s?\.|\.(md|rst|txt|adoc)$")
@@ -59,32 +64,63 @@ def _enum(v: str) -> str:
 
 
 def _hide(text: str) -> str:
-    """`text` with the data inside OPAQUE elements blanked. Offsets are kept, so a match on it slices the original."""
-    return OPAQUE.sub(lambda m: m.group(0)[:m.start("in") - m.start()] + " " * len(m.group("in"))
-                      + m.group(0)[m.end("in") - m.start():], text)
+    """`text` with the data inside OPAQUE elements blanked. Offsets are kept, so a match on it slices the original. An
+    element that holds another of its own tag is left alone: its closing tag is missing, and hiding up to the next one
+    would hide the findings in between."""
+    out, done, pos = [], 0, 0
+    while True:
+        m = OPAQUE.search(text, pos)
+        if not m:
+            break
+        t = m.group(1).lower()
+        nxt = re.compile(r"(?i)<%s\b" % t).search(text, m.end())
+        closers = list(re.compile(r"(?i)</%s\s*>" % t).finditer(text, m.end(), nxt.start() if nxt else len(text)))
+        if not closers:
+            pos = m.end()
+            continue
+        follows = re.compile(r"(?i)\s*(?:%s|\Z)" % _AFTER[t])
+        c = next((c for c in closers if follows.match(text, c.end())), closers[0])
+        out += [text[done:m.end()], " " * (c.start() - m.end())]
+        done = pos = c.start()
+    return "".join(out) + text[done:]
+
+
+def _bare(s: str) -> bool:
+    return not re.sub(BARE, "", s)
+
+
+def _starts_line(s: str, i: int) -> bool:
+    return _bare(s[s.rfind("\n", 0, i) + 1:i])
+
+
+def _ends_line(s: str, i: int) -> bool:
+    nl = s.find("\n", i)
+    return _bare(s[i:nl if nl >= 0 else len(s)])
 
 
 def block(tag: str, text: str, inner: str = TOP, cut_short: str = "") -> tuple[dict[str, str], str] | None:
-    """(attributes, body) of the block in `text` that is the report: the last that holds an `inner` element and starts
-    its line, else the last that holds one, else the last empty one that starts its line. A block quoted in a sentence
-    ("the <report></report> format") or a bare mention is no block. Without its closing tag the body runs to the end;
-    an unclosed block with no `inner` element counts only if its line starts with it and its attributes match
-    `cut_short`."""
+    """(attributes, body) of the block in `text` that is the report: the last standalone one (alone on its lines,
+    markdown aside) that holds an `inner` element, else the last empty standalone one, else the last that holds one.
+    A block quoted in a sentence ("the <report></report> format") or a bare mention is no block. Without its closing
+    tag the body runs to the end; an unclosed block with no `inner` element counts only if it starts its line, its
+    attributes match `cut_short`, and nothing follows it but a tag cut off mid-way."""
     text = text or ""
     seen = _hide(text)
     found = []
     for m in re.finditer(r"(?i)<%s\b%s>" % (tag, _ATTRS), seen):
         a = m.group(1).rstrip()
-        own_line = not re.sub(r"[>`*_\s-]+", "", seen[seen.rfind("\n", 0, m.start()) + 1:m.start()])
+        starts = _starts_line(seen, m.start())
         if a.endswith("/"):
-            if own_line:
-                found.append((0, 1, _attrs(a[:-1]), ""))
+            if starts and _ends_line(seen, m.end()):
+                found.append((1, 0, _attrs(a[:-1]), ""))
             continue
         end = re.compile(r"(?i)</%s\s*>" % tag).search(seen, m.end())
         stop = end.start() if end else len(text)
         full = bool(re.search(r"(?i)" + inner, seen[m.end():stop]))
-        if full or (own_line and (end or (cut_short and re.search(r"(?i)" + cut_short, a)))):
-            found.append((int(full), int(own_line), _attrs(a), text[m.end():stop]))
+        alone = starts and (_ends_line(seen, end.end()) if end else full or bool(
+            cut_short and re.search(r"(?i)" + cut_short, a) and re.fullmatch(r"\s*(?:<[^<>]*)?", seen[m.end():])))
+        if full or alone:
+            found.append((int(alone), int(full), _attrs(a), text[m.end():stop]))
     return max(reversed(found), key=lambda f: f[:2])[2:] if found else None
 
 
