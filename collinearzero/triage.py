@@ -22,8 +22,8 @@ from typing import Callable
 TOP = r"</?(?:report|bypass|regression|checked|note)\b"   # an element of the report ends where the next one starts
 _ATTRS = r"""((?:"[^"]*"|'[^']*'|[^'">])*)"""
 # The elements whose text is data, and what the report's structure lets follow each one's closing tag. An element ends
-# at the first closing tag followed by such text, so an input that holds its own closing tag stays data; an input whose
-# own closing tag is followed by what looks like the next field cannot be told apart from it.
+# at the last closing tag followed by such text, before the next element of its tag, so an input that holds its own
+# closing tag stays data, even with what looks like the next field after it.
 _FIELD = r"</(?:bypass|regression)\b|<(?!/|(?:report|recheck|bypass|regression|checked|note|run)\b)"
 _AFTER = {**dict.fromkeys(("case", "entry_point", "observed", "expected", "quote"), _FIELD),
           **dict.fromkeys(("checked", "note"), r"</report\b|<(?!/|(?:report|recheck|run)\b)"),
@@ -79,7 +79,7 @@ def _hide(text: str) -> str:
             pos = m.end()
             continue
         follows = re.compile(r"(?i)\s*(?:%s|\Z)" % _AFTER[t])
-        c = next((c for c in closers if follows.match(text, c.end())), closers[0])
+        c = next((c for c in reversed(closers) if follows.match(text, c.end())), closers[0])
         out += [text[done:m.end()], " " * (c.start() - m.end())]
         done = pos = c.start()
     return "".join(out) + text[done:]
@@ -100,7 +100,8 @@ def _ends_line(s: str, i: int) -> bool:
 
 def block(tag: str, text: str, inner: str = TOP, cut_short: str = "") -> tuple[dict[str, str], str] | None:
     """(attributes, body) of the block in `text` that is the report: the last standalone one (alone on its lines,
-    markdown aside) that holds an `inner` element, else the last empty standalone one, else the last that holds one.
+    markdown aside, or over several lines) that holds an `inner` element, else the last empty standalone one, else the
+    last that holds one.
     A block quoted in a sentence ("the <report></report> format") or a bare mention is no block. Without its closing
     tag the body runs to the end; an unclosed block with no `inner` element counts only if it starts its line, its
     attributes match `cut_short`, and nothing follows it but a tag cut off mid-way."""
@@ -119,6 +120,7 @@ def block(tag: str, text: str, inner: str = TOP, cut_short: str = "") -> tuple[d
         full = bool(re.search(r"(?i)" + inner, seen[m.end():stop]))
         alone = starts and (_ends_line(seen, end.end()) if end else full or bool(
             cut_short and re.search(r"(?i)" + cut_short, a) and re.fullmatch(r"\s*(?:<[^<>]*)?", seen[m.end():])))
+        alone = alone or (full and "\n" in seen[m.end():stop])   # a quoted template sits on one line
         if full or alone:
             found.append((int(alone), int(full), _attrs(a), text[m.end():stop]))
     return max(reversed(found), key=lambda f: f[:2])[2:] if found else None
