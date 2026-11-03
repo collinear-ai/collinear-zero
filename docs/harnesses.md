@@ -33,7 +33,8 @@ with `Edit`, `Write`, `NotebookEdit`, web and `Task` tools disallowed.
 **Interactive (the gate):**
 - **First stop:** the gate runs the tester and the triage. If findings are forwarded, it blocks the stop and hands
   them to Claude.
-- **Next stop:** it runs the recheck and reverts the fix round on `RECHECK: BROKEN`.
+- **Next stop:** it runs the recheck and reverts the fix round on `<recheck verdict="BROKEN">` or on any legitimate
+  run that now fails.
 - **Without an active task for this repository,** it does nothing.
 
 **Non-interactive (`cz run`):**

@@ -5,7 +5,7 @@ A Stop hook runs when the agent tries to end its turn. With an active Collinear 
                      it stop and wait for a later one; else run the attack-tester and the triage within the hook's
                      timeout; if anything is forwarded, block the stop and hand the findings to the agent (that
                      continuation is the fix round), else let it stop;
-  next stop       -> recheck in the tester's session, restore the checkpoint on RECHECK: BROKEN, let it stop.
+  next stop       -> recheck in the tester's session, restore the checkpoint on verdict="BROKEN", let it stop.
 Without an active task, or inside a session Collinear Zero started itself (CZ_GATE=off), it does nothing.
 """
 from __future__ import annotations
