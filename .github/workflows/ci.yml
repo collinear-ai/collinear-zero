@@ -2,10 +2,16 @@ name: ci
 on: [push, pull_request]
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        python: ["3.9", "3.10", "3.11", "3.12"]
+        python: ["3.10", "3.11", "3.12"]
+        os: [ubuntu-latest]
+        include:
+          # No Python 3.9 build is published for the Ubuntu 26.04 image behind ubuntu-latest.
+          - python: "3.9"
+            os: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
